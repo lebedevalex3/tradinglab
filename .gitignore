@@ -1,11 +1,46 @@
-# OS
+# ===== Python =====
+__pycache__/
+*.py[cod]
+*.pyd
+*.so
+*.egg-info/
+dist/
+build/
+
+# Virtual env
+.venv/
+venv/
+ENV/
+.python-version
+
+# ===== Jupyter =====
+.ipynb_checkpoints/
+
+# ===== Env / secrets =====
+.env
+.env.*
+
+# ===== Data (do not commit real datasets) =====
+data/raw/
+data/clean/
+data/features/
+
+# But allow sample data for tests / examples
+!data/sample/
+!data/sample/**
+
+# ===== Artifacts (runs, logs, reports generated) =====
+artifacts/runs/
+artifacts/**/runs/
+*.log
+
+# ===== OS / IDE =====
 .DS_Store
 Thumbs.db
-
-# Editors
 .vscode/
 .idea/
 
-# Temporary
-*.log
-*.tmp
+# ===== Coverage / test =====
+.coverage
+htmlcov/
+.pytest_cache/
