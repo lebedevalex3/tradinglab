@@ -15,6 +15,11 @@ data/
   sample/     # небольшой demo-набор для тестов и примеров
 ```
 
+Sample dataset:
+
+- data/sample/btcusdt_10m.parquet
+  Columns: timestamp (UTC), open, high, low, close, volume
+
 ## Назначение и правила по каталогам
 
 `data/raw/`
