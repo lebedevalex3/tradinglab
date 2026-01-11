@@ -11,7 +11,16 @@ from pathlib import Path
 import pandas as pd
 import yaml
 
+# Run artifacts must follow docs/run-contract.md
+
+REQUIRED_OHLCV_COLS = {"timestamp", "open", "high", "low", "close", "volume"}
+
+
 # ---------- helpers ----------
+
+
+def dump_yaml(obj: dict, path: Path) -> None:
+    path.write_text(yaml.safe_dump(obj, sort_keys=False), encoding="utf-8")
 
 
 def load_yaml(path: str | Path) -> dict:
@@ -24,6 +33,29 @@ def get_git_commit() -> str:
 
 def utc_now() -> str:
     return datetime.now(UTC).isoformat()
+
+
+def ensure_config(cfg: dict) -> None:
+    if "strategy_version" not in cfg:
+        raise ValueError("Config missing key: strategy_version")
+    if "paths" not in cfg or not isinstance(cfg["paths"], dict):
+        raise ValueError("Config missing section: paths")
+    if "data_path" not in cfg["paths"]:
+        raise ValueError("Config missing key: paths.data_path")
+    if "artifacts_dir" not in cfg["paths"]:
+        raise ValueError("Config missing key: paths.artifacts_dir")
+
+
+def validate_ohlcv(df: pd.DataFrame) -> None:
+    cols = set(df.columns)
+    missing = REQUIRED_OHLCV_COLS - cols
+    if missing:
+        raise ValueError(f"OHLCV data missing columns: {sorted(missing)}")
+    if df["timestamp"].isna().any():
+        raise ValueError("OHLCV data has NaN in timestamp")
+    # минимально: проверка сортировки
+    if not df["timestamp"].is_monotonic_increasing:
+        raise ValueError("OHLCV timestamp is not monotonic increasing")
 
 
 # ---------- data structures ----------
@@ -48,6 +80,7 @@ def main() -> None:
     args = parser.parse_args()
 
     cfg = load_yaml(args.config)
+    ensure_config(cfg)
 
     # paths
     data_path = Path(cfg["paths"]["data_path"])
@@ -58,11 +91,16 @@ def main() -> None:
     run_dir = artifacts_dir / run_id
     run_dir.mkdir(parents=True, exist_ok=True)
 
+    # Save config snapshot to run folder
+    dump_yaml(cfg, run_dir / "config.yml")
+
     # load data (smoke)
     df = pd.read_parquet(data_path)
+    validate_ohlcv(df)
 
     # empty trades (placeholder)
     trades = pd.DataFrame(columns=["timestamp", "side", "price", "qty"])
+    trades.to_parquet(run_dir / "trades.parquet", index=False)
 
     # meta
     meta = RunMeta(
@@ -79,8 +117,6 @@ def main() -> None:
         json.dumps(asdict(meta), indent=2),
         encoding="utf-8",
     )
-
-    trades.to_parquet(run_dir / "trades.parquet", index=False)
 
     summary = {
         "rows_in_data": len(df),
@@ -102,12 +138,17 @@ Git commit: {meta.git_commit}
 Data:
 - path: {data_path}
 - rows: {len(df)}
+- columns_ok: {sorted(REQUIRED_OHLCV_COLS)}
 
 Trades: 0
 
 Status: OK (smoke run)
 """
     (run_dir / "report.md").write_text(report, encoding="utf-8")
+
+    # Write pointer to latest run
+    artifacts_dir.mkdir(parents=True, exist_ok=True)
+    (artifacts_dir / "latest.txt").write_text(run_id, encoding="utf-8")
 
     print(f"OK: run created at {run_dir}")
 
