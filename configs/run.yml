@@ -1,0 +1,18 @@
+strategy_version: "mr-envelope-v0.1.0"
+
+paths:
+  data_path: "data/sample/btcusdt_10m.parquet"
+  artifacts_dir: "artifacts/runs"
+
+market:
+  exchange: "binance"
+  symbol: "BTC/USDT"
+  timeframe: "10m"
+
+execution:
+  commission_bps: 0 # bps = 0.01%
+  slippage_bps: 0
+  mode: "close" # close = исполнение на закрытии бара
+
+params:
+  note: "smoke"
