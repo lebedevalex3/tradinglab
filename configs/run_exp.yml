@@ -1,5 +1,15 @@
 experiment:
-  name: exp000_smoke
+  name: exp001_adx_bins
+  params:
+    dmi_length: 14
+    adx_smoothing: 14
+    horizons: [1, 3, 6, 12, 24]
+    slope_lookback: 3
+    adx_bins: 3
+    binning: quantile # или fixed
+    # для fixed:
+    # adx_th_low: 20
+    # adx_th_high: 25
 
 data:
   sample_path: data/sample/btcusdt_10m.parquet

@@ -51,7 +51,7 @@ def _setup_logger(run_id: str) -> logging.Logger:
 def _load_yaml(path: Path) -> dict[str, Any]:
     if yaml is None:  # pragma: no cover
         raise RuntimeError(
-            "PyYAML is required to read configs. " f"Import error: {_YAML_IMPORT_ERROR}"
+            f"PyYAML is required to read configs. Import error: {_YAML_IMPORT_ERROR}"
         )
     with path.open("r", encoding="utf-8") as f:
         data = yaml.safe_load(f) or {}

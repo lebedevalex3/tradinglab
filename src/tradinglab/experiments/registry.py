@@ -7,11 +7,13 @@ import pandas as pd
 
 from .base import ExperimentResult, RunContext
 from .exp000_smoke import run as exp000_smoke_run
+from .exp001_adx_bins import run as exp001_adx_bins_run
 
 ExperimentFn = Callable[[pd.DataFrame, RunContext], ExperimentResult]
 
 EXPERIMENTS: dict[str, ExperimentFn] = {
     "exp000_smoke": exp000_smoke_run,
+    "exp001_adx_bins": exp001_adx_bins_run,
 }
 
 
