@@ -1,0 +1,8 @@
+experiment:
+  name: exp000_smoke
+
+data:
+  sample_path: data/sample/btcusdt_10m.parquet
+
+artifacts:
+  base_dir: artifacts/runs
