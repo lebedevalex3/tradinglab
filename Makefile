@@ -19,6 +19,9 @@ format:
 test:
 	poetry run pytest -q
 
+notebook:
+	poetry run jupyter lab --notebook-dir research/notebooks
+
 # -------------------------
 # Backtests (existing)
 # -------------------------
@@ -31,7 +34,7 @@ backtest:
 # -------------------------
 
 CONFIG ?= configs/run_exp.yml
-EXP ?= exp000_smoke
+EXP ?= exp001_adx_bins
 
 # Default smoke experiment
 exp-smoke:
@@ -40,6 +43,10 @@ exp-smoke:
 # Run any experiment: make exp EXP=exp000_smoke
 exp:
 	poetry run python scripts/run_experiment.py --config $(CONFIG) --exp $(EXP)
+
+fetch:
+	python scripts/fetch_ohlcv.py --config configs/run.yml
+
 
 # Help
 exp-help:

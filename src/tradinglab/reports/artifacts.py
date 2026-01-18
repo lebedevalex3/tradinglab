@@ -97,9 +97,7 @@ def write_resolved_config(run_dir: Path, cfg: Mapping[str, Any]) -> Path:
     Write resolved config as YAML to: config.resolved.yml
     """
     if yaml is None:  # pragma: no cover
-        raise RuntimeError(
-            f"PyYAML is required to write config.resolved.yml. Import error: {_YAML_IMPORT_ERROR}"
-        )
+        raise RuntimeError(f"PyYAML is required to write config.resolved.yml. Import error: {_YAML_IMPORT_ERROR}")
 
     path = Path(run_dir) / "config.resolved.yml"
     with path.open("w", encoding="utf-8") as f:

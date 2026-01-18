@@ -58,12 +58,7 @@ def main() -> None:
     print(f"[OK] results written -> {results_path.name}")
 
     # 5. Fake markdown report
-    report_md = (
-        "# Writer Smoke Check\n\n"
-        "This is a minimal report to verify artifact writing.\n\n"
-        f"- run_id: `{run_id}`\n"
-        f"- rows: {len(df)}\n"
-    )
+    report_md = f"# Writer Smoke Check\n\nThis is a minimal report to verify artifact writing.\n\n- run_id: `{run_id}`\n- rows: {len(df)}\n"
     write_report_md(run_dir, report_md)
     print("[OK] report.md written")
 

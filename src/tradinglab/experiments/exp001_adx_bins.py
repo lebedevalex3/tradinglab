@@ -82,15 +82,11 @@ def run(df: pd.DataFrame, ctx: RunContext) -> ExperimentResult:
     # Direction proxy from DI: +1 if DI+ > DI-, else -1 (NA if missing)
     df2["di_dir"] = pd.NA
     mask_dir = df2["pdi"].notna() & df2["mdi"].notna()
-    df2.loc[mask_dir, "di_dir"] = (df2.loc[mask_dir, "pdi"] > df2.loc[mask_dir, "mdi"]).map(
-        {True: 1, False: -1}
-    )
+    df2.loc[mask_dir, "di_dir"] = (df2.loc[mask_dir, "pdi"] > df2.loc[mask_dir, "mdi"]).map({True: 1, False: -1})
 
     # ADX slope: rising/falling based on lookback
     df2["adx_slope_val"] = df2["adx"] - df2["adx"].shift(slope_lookback)
-    df2["adx_slope"] = df2["adx_slope_val"].apply(
-        lambda x: "rising" if pd.notna(x) and x > 0 else ("falling" if pd.notna(x) else pd.NA)
-    )
+    df2["adx_slope"] = df2["adx_slope_val"].apply(lambda x: "rising" if pd.notna(x) and x > 0 else ("falling" if pd.notna(x) else pd.NA))
 
     # ADX bins: quantile (default) or fixed thresholds
     if binning == "quantile":
@@ -150,9 +146,7 @@ def run(df: pd.DataFrame, ctx: RunContext) -> ExperimentResult:
 
     results_df = pd.DataFrame(rows)
     if not results_df.empty:
-        results_df = results_df.sort_values(["horizon", "adx_bin", "adx_slope"]).reset_index(
-            drop=True
-        )
+        results_df = results_df.sort_values(["horizon", "adx_bin", "adx_slope"]).reset_index(drop=True)
 
     if results_df.empty:
         n_groups = 0
