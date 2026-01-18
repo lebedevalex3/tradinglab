@@ -4,9 +4,13 @@ from __future__ import annotations
 import time
 from dataclasses import dataclass
 from datetime import datetime
+from pathlib import Path
 from typing import Any
 
 import pandas as pd
+
+from tradinglab.data.contracts import OhlcvContract, validate_ohlcv
+from tradinglab.data.timeframes import tf_to_ms
 
 try:
     from tqdm import tqdm
@@ -20,15 +24,8 @@ def _to_utc_timestamp_ms(dt_str: str) -> int:
 
 
 def _tf_to_ms(tf: str) -> int:
-    n = int(tf[:-1])
-    unit = tf[-1]
-    if unit == "m":
-        return n * 60_000
-    if unit == "h":
-        return n * 3_600_000
-    if unit == "d":
-        return n * 86_400_000
-    raise ValueError(f"Unsupported timeframe: {tf}")
+    # backward-compatible wrapper
+    return tf_to_ms(tf)
 
 
 @dataclass(frozen=True, slots=True)
@@ -148,10 +145,126 @@ class OHLCVFetcher:
         df["timestamp"] = pd.to_datetime(df["ts_ms"], unit="ms", utc=True)
         df = df.drop(columns=["ts_ms"])
 
-        for c in ["open", "high", "low", "close", "volume"]:
-            df[c] = pd.to_numeric(df[c], errors="coerce")
+        # Centralized normalization/contract
+        return validate_ohlcv(df, contract=OhlcvContract(), strict=False)
 
-        df = df.dropna(subset=["timestamp", "open", "high", "low", "close"])
-        df = df.sort_values("timestamp")
-        df = df.drop_duplicates(subset=["timestamp"], keep="last").reset_index(drop=True)
-        return df
+
+@dataclass(frozen=True, slots=True)
+class IncrementalConfig:
+    overlap_bars: int = 200
+    strict_validation: bool = True
+    contract: OhlcvContract = OhlcvContract()
+
+
+def _last_timestamp_ms(df: pd.DataFrame) -> int:
+    # df["timestamp"] is expected tz-aware UTC datetime64
+    ts = df["timestamp"].iloc[-1]
+    return int(ts.value // 1_000_000)  # ns -> ms
+
+
+def compute_incremental_since_ms(
+    *,
+    existing: pd.DataFrame | None,
+    timeframe: str,
+    overlap_bars: int,
+    min_since_ms: int | None,
+) -> int | None:
+    if existing is None or len(existing) == 0:
+        return min_since_ms
+
+    tf_ms = tf_to_ms(timeframe)
+    last_ms = _last_timestamp_ms(existing)
+    overlap_ms = overlap_bars * tf_ms
+    since = max(0, last_ms - overlap_ms)
+
+    if min_since_ms is not None:
+        since = max(min_since_ms, since)
+    return since
+
+
+def read_parquet_if_exists(path: Path, *, contract: OhlcvContract) -> pd.DataFrame | None:
+    if not path.exists():
+        return None
+    df = pd.read_parquet(path)
+    return validate_ohlcv(df, contract=contract, strict=False)
+
+
+def write_parquet_atomic(df: pd.DataFrame, path: Path) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_suffix(path.suffix + ".tmp")
+    df.to_parquet(tmp, index=False)
+    tmp.replace(path)
+
+
+def merge_ohlcv(
+    *,
+    existing: pd.DataFrame | None,
+    fresh: pd.DataFrame,
+    contract: OhlcvContract,
+    strict: bool,
+) -> pd.DataFrame:
+    if existing is None or len(existing) == 0:
+        return validate_ohlcv(fresh, contract=contract, strict=strict)
+
+    merged = pd.concat([existing, fresh], ignore_index=True)
+    return validate_ohlcv(merged, contract=contract, strict=strict)
+
+
+def incremental_update_parquet(
+    *,
+    fetcher: OHLCVFetcher,
+    path: Path,
+    symbol: str,
+    timeframe: str,
+    start_ms: int,
+    end_ms: int | None = None,
+    cfg: IncrementalConfig | None = None,
+) -> pd.DataFrame:
+    """
+    Incremental updater:
+      - loads existing parquet if present
+      - computes since_ms = last_ts - overlap window (but not earlier than start_ms)
+      - fetches range [since_ms, end_ms)
+      - merges existing + fresh
+      - validates strictly (optional)
+      - writes atomically
+    """
+    cfg = cfg or IncrementalConfig()
+
+    existing = read_parquet_if_exists(path, contract=cfg.contract)
+
+    since_ms = compute_incremental_since_ms(
+        existing=existing,
+        timeframe=timeframe,
+        overlap_bars=cfg.overlap_bars,
+        min_since_ms=start_ms,
+    )
+    if since_ms is None:
+        since_ms = start_ms
+
+    fetcher.logger.info(
+        "incremental_update: path=%s symbol=%s tf=%s since=%s end=%s overlap_bars=%s",
+        str(path),
+        symbol,
+        timeframe,
+        since_ms,
+        end_ms,
+        cfg.overlap_bars,
+    )
+
+    fresh = fetcher.fetch_range(
+        symbol=symbol,
+        timeframe=timeframe,
+        start_ms=since_ms,
+        end_ms=end_ms,
+    )
+
+    merged = merge_ohlcv(
+        existing=existing,
+        fresh=fresh,
+        contract=cfg.contract,
+        strict=cfg.strict_validation,
+    )
+
+    write_parquet_atomic(merged, path)
+    return merged

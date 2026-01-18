@@ -8,12 +8,28 @@ from pathlib import Path
 import pandas as pd
 import yaml
 
-# NEW: direct binance http provider
 from tradinglab.data.binance_http import BinanceHTTPConfig, BinanceKlinesFetcher
+from tradinglab.data.contracts import OhlcvContract, validate_ohlcv
 from tradinglab.data.exchange_client import make_exchange
 from tradinglab.data.ohlcv_fetcher import FetchConfig, OHLCVFetcher, _to_utc_timestamp_ms
 from tradinglab.data.store import ParquetStore, RawPathSpec
+from tradinglab.data.timeframes import tf_to_ms
 from tradinglab.utils.logging import setup_logger
+
+
+def _compute_since_ms(
+    *,
+    start_ms: int,
+    last_ts: pd.Timestamp | None,
+    timeframe: str,
+    overlap_bars: int,
+) -> int:
+    if last_ts is None:
+        return start_ms
+
+    last_ms = int(last_ts.value // 1_000_000)  # ns -> ms
+    overlap_ms = overlap_bars * tf_to_ms(timeframe)
+    return max(start_ms, max(0, last_ms - overlap_ms))
 
 
 def main() -> None:
@@ -40,10 +56,16 @@ def main() -> None:
 
     raw_dir = st.get("raw_dir", "data/raw")
 
+    # New knobs
+    overlap_bars = int(ds.get("overlap_bars", 200))
+    strict_validation = bool(ds.get("strict_validation", True))
+    contract = OhlcvContract()
+
     logger.info("Config loaded: %s", args.config)
     logger.info("Provider=%s", provider)
     logger.info("Exchange=%s market=%s symbols=%s tfs=%s", exchange_id, market_type, symbols, timeframes)
     logger.info("Raw dir: %s", raw_dir)
+    logger.info("Incremental: overlap_bars=%s strict_validation=%s", overlap_bars, strict_validation)
 
     start_ms = _to_utc_timestamp_ms(start)
     end_ms = _to_utc_timestamp_ms(end) if end else None
@@ -79,24 +101,34 @@ def main() -> None:
                 spec = RawPathSpec(exchange=exchange_id, market_type=market_type, symbol=symbol, timeframe=tf)
                 path = store.path_for(spec)
 
-                existing = store.read(path)
+                existing = store.read_ohlcv(path, contract=contract)
                 last_ts = store.last_timestamp(existing)
 
-                since_ms = start_ms
-                if last_ts is not None:
-                    since_ms = int(last_ts.timestamp() * 1000)
+                since_ms = _compute_since_ms(
+                    start_ms=start_ms,
+                    last_ts=last_ts,
+                    timeframe=tf,
+                    overlap_bars=overlap_bars,
+                )
 
                 logger.info("=== %s %s ===", symbol, tf)
                 logger.info("Existing: %s rows=%s last_ts=%s", path, 0 if existing is None else len(existing), last_ts)
-                logger.info("Fetch since_ms=%s end_ms=%s limit=%s", since_ms, end_ms, http_cfg.limit)
+                logger.info(
+                    "Fetch since_ms=%s end_ms=%s overlap_bars=%s limit=%s",
+                    since_ms,
+                    end_ms,
+                    overlap_bars,
+                    http_cfg.limit,
+                )
 
                 df_new = fetcher.fetch_range(symbol=symbol, interval=tf, start_ms=since_ms, end_ms=end_ms)
 
                 if existing is None or existing.empty:
-                    merged = df_new
+                    merged_raw = df_new
                 else:
-                    merged = pd.concat([existing, df_new], ignore_index=True)
-                    merged = merged.sort_values("timestamp").drop_duplicates(subset=["timestamp"], keep="last").reset_index(drop=True)
+                    merged_raw = pd.concat([existing, df_new], ignore_index=True)
+
+                merged = validate_ohlcv(merged_raw, contract=contract, strict=strict_validation)
 
                 store.write_atomic(path, merged)
                 logger.info("[OK] saved: %s rows=%s (new_rows=%s)", path, len(merged), len(df_new))
@@ -139,24 +171,28 @@ def main() -> None:
             spec = RawPathSpec(exchange=exchange_id, market_type=market_type, symbol=symbol, timeframe=tf)
             path = store.path_for(spec)
 
-            existing = store.read(path)
+            existing = store.read_ohlcv(path, contract=contract)
             last_ts = store.last_timestamp(existing)
 
-            since_ms = start_ms
-            if last_ts is not None:
-                since_ms = int(last_ts.timestamp() * 1000)
+            since_ms = _compute_since_ms(
+                start_ms=start_ms,
+                last_ts=last_ts,
+                timeframe=tf,
+                overlap_bars=overlap_bars,
+            )
 
             logger.info("=== %s %s ===", symbol, tf)
             logger.info("Existing: %s rows=%s last_ts=%s", path, 0 if existing is None else len(existing), last_ts)
-            logger.info("Fetch since_ms=%s end_ms=%s", since_ms, end_ms)
+            logger.info("Fetch since_ms=%s end_ms=%s overlap_bars=%s", since_ms, end_ms, overlap_bars)
 
             df_new = fetcher.fetch_range(symbol=symbol, timeframe=tf, start_ms=since_ms, end_ms=end_ms)
 
             if existing is None or existing.empty:
-                merged = df_new
+                merged_raw = df_new
             else:
-                merged = pd.concat([existing, df_new], ignore_index=True)
-                merged = merged.sort_values("timestamp").drop_duplicates(subset=["timestamp"], keep="last").reset_index(drop=True)
+                merged_raw = pd.concat([existing, df_new], ignore_index=True)
+
+            merged = validate_ohlcv(merged_raw, contract=contract, strict=strict_validation)
 
             store.write_atomic(path, merged)
             logger.info("[OK] saved: %s rows=%s (new_rows=%s)", path, len(merged), len(df_new))

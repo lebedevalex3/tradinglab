@@ -5,6 +5,8 @@ from pathlib import Path
 
 import pandas as pd
 
+from tradinglab.data.contracts import OhlcvContract, validate_ohlcv
+
 
 @dataclass(frozen=True, slots=True)
 class RawPathSpec:
@@ -31,14 +33,21 @@ class ParquetStore:
             return None
         return pd.read_parquet(path)
 
+    def read_ohlcv(self, path: Path, *, contract: OhlcvContract | None = None) -> pd.DataFrame | None:
+        df = self.read(path)
+        if df is None or df.empty:
+            return df
+        return validate_ohlcv(df, contract=contract or OhlcvContract(), strict=False)
+
     def last_timestamp(self, df: pd.DataFrame | None) -> pd.Timestamp | None:
         if df is None or df.empty:
             return None
-        ts = df["timestamp"]
-        # expecting tz-aware UTC
-        return pd.to_datetime(ts).max()
+        ts = pd.to_datetime(df["timestamp"], errors="coerce", utc=True)
+        return ts.max()
 
     def write_atomic(self, path: Path, df: pd.DataFrame) -> None:
+        # Enforce strict contract at write time
+        clean = validate_ohlcv(df, contract=OhlcvContract(), strict=True)
         tmp = path.with_suffix(".tmp.parquet")
-        df.to_parquet(tmp, index=False)
+        clean.to_parquet(tmp, index=False)
         tmp.replace(path)

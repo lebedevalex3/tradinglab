@@ -22,6 +22,12 @@ test:
 notebook:
 	poetry run jupyter lab --notebook-dir research/notebooks
 
+data-check:
+	poetry run python scripts/validate_data.py --strict
+
+data-check-report:
+	poetry run python scripts/validate_data.py --strict --write-report
+
 # -------------------------
 # Backtests (existing)
 # -------------------------
